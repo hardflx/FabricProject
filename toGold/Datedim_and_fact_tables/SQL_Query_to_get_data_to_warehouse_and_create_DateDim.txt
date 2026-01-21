@@ -1,0 +1,44 @@
+CREATE OR ALTER PROCEDURE dbo.RefreshStarSchemaDates
+AS
+BEGIN
+    IF EXISTS (SELECT * FROM sys.tables WHERE name = 'DimDate' AND schema_id = SCHEMA_ID('dbo')) DROP TABLE dbo.DimDate;
+    IF EXISTS (SELECT * FROM sys.tables WHERE name = 'FactAirQuality' AND schema_id = SCHEMA_ID('OpenAQ')) DROP TABLE OpenAQ.FactAirQuality;
+    IF EXISTS (SELECT * FROM sys.tables WHERE name = 'FactTaxi' AND schema_id = SCHEMA_ID('Taxi')) DROP TABLE Taxi.FactTaxi;
+    IF EXISTS (SELECT * FROM sys.tables WHERE name = 'FactCurrency' AND schema_id = SCHEMA_ID('FX')) DROP TABLE FX.FactCurrency;
+    IF EXISTS (SELECT * FROM sys.tables WHERE name = 'FactMarket' AND schema_id = SCHEMA_ID('Market')) DROP TABLE Market.FactMarket;
+
+    DECLARE @StartDate DATE = DATEADD(MONTH, DATEDIFF(MONTH, 0, GETDATE()) - 5, 0);
+    DECLARE @EndDate DATE = EOMONTH(GETDATE(), -2);
+
+    CREATE TABLE dbo.DimDate AS
+    WITH 
+    L0 AS (SELECT 1 AS c UNION ALL SELECT 1),                    
+    L1 AS (SELECT 1 AS c FROM L0 AS a CROSS JOIN L0 AS b),      
+    L2 AS (SELECT 1 AS c FROM L1 AS a CROSS JOIN L1 AS b),      
+    L3 AS (SELECT 1 AS c FROM L2 AS a CROSS JOIN L2 AS b),      
+    Nums AS (SELECT ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) - 1 AS n FROM L3),
+    DateList AS (
+        SELECT DATEADD(DAY, n, @StartDate) AS [Date]
+        FROM Nums
+        WHERE DATEADD(DAY, n, @StartDate) <= @EndDate
+    )
+    SELECT 
+        CAST([Date] AS DATE) AS [DateKey],
+        YEAR([Date]) AS [Year],
+        MONTH([Date]) AS [Month],
+        CAST(FORMAT([Date], 'MMMM') AS VARCHAR(20)) AS [MonthName],
+        CAST(DATENAME(WEEKDAY, [Date]) AS VARCHAR(20)) AS [DayOfWeek]
+    FROM DateList;
+
+    CREATE TABLE OpenAQ.FactAirQuality AS 
+    SELECT CAST([date] AS DATE) AS DateKey, * FROM [Lakehouse_Gold].[OpenAQ].[factopenaqdaily];
+
+    CREATE TABLE Taxi.FactTaxi AS 
+    SELECT CAST([Date] AS DATE) AS DateKey, * FROM [Lakehouse_Gold].[Taxi].[facttaxidaily];
+
+    CREATE TABLE FX.FactCurrency AS 
+    SELECT CAST([Date] AS DATE) AS DateKey, * FROM [Lakehouse_Gold].[FX].[factdailyfx];
+
+    CREATE TABLE Market.FactMarket AS 
+    SELECT CAST([Date] AS DATE) AS DateKey, * FROM [Lakehouse_Gold].[Finance].[factmarketdaily];
+END;
